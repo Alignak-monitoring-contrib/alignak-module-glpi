@@ -1,0 +1,23 @@
+# Python requirements for unit tests
+-r ../requirements.txt
+
+requests
+requests_mock
+configparser
+psutil
+
+# Let coverage use the most recent version
+coverage
+
+# Report coverage results to codecov
+codecov
+
+# Static code analysis libraries
+pylint
+pycodestyle
+pep257
+
+# Use py.test as test-runner
+unittest2
+pytest
+pytest-cov
