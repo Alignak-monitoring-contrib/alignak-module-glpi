@@ -24,13 +24,13 @@
         },
         "console": {
             "class": "logging.StreamHandler",
-            "level": "ERROR",
+            "level": "INFO",
             "formatter": "alignak",
             "stream": "ext://sys.stdout"
         },
         "color_console": {
             "class": "alignak.log.ColorStreamHandler",
-            "level": "ERROR",
+            "level": "INFO",
             "formatter": "alignak",
             "stream": "ext://sys.stdout"
         },

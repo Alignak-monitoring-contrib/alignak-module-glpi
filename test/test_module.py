@@ -60,7 +60,7 @@ class TestModules(AlignakTest):
         modules = [m.module_alias for m in self._arbiter.link_to_myself.modules]
         self.assertListEqual(modules, [])
 
-        # No broker modules
+        # A broker module
         modules = [m.module_alias for m in self._broker_daemon.modules]
         self.assertListEqual(modules, ['glpi'])
 
@@ -68,7 +68,7 @@ class TestModules(AlignakTest):
         modules = [m.module_alias for m in self._scheduler_daemon.modules]
         self.assertListEqual(modules, ['inner-retention'])
 
-        # A receiver module
+        # No receiver modules
         modules = [m.module_alias for m in self._receiver.modules]
         self.assertListEqual(modules, [])
 
@@ -560,3 +560,193 @@ class TestModules(AlignakTest):
             "[glpi] periodical DB connection test period: 0s"
         ), i)
         i += 1
+
+    def test_module_db_connection(self):
+        """Test the module initialization function, DB connection
+        :return:
+        """
+        # Obliged to call to get a self.logger...
+        self.set_unit_tests_logger_level()
+        self.setup_with_file('./cfg/alignak.cfg')
+        self.assertTrue(self.conf_is_correct)
+
+        # Clear logs
+        self.clear_logs()
+
+        # -----
+        # Default initialization
+        # -----
+        # Create an Alignak module
+        mod = Module({
+            'module_alias': 'glpi',
+            'module_types': 'DB',
+            'python_name': 'alignak_module_glpi'
+        })
+
+        instance = alignak_module_glpi.get_instance(mod)
+        self.assertIsInstance(instance, BaseModule)
+        self.show_logs()
+
+        i = 0
+        self.assert_log_match(re.escape(
+            "[glpi] using 'glpi' database on 127.0.0.1:3306 (user = alignak)"
+        ), i)
+        i += 1
+        self.assert_log_match(re.escape(
+            "[glpi] updating services events: False"
+        ), i)
+        i += 1
+        self.assert_log_match(re.escape(
+            "[glpi] updating hosts states: False"
+        ), i)
+        i += 1
+        self.assert_log_match(re.escape(
+            "[glpi] updating services states: False"
+        ), i)
+        i += 1
+        self.assert_log_match(re.escape(
+            "[glpi] updating acknowledges states: False"
+        ), i)
+        i += 1
+        self.assert_log_match(re.escape(
+            "[glpi] periodical commit period: 60s"
+        ), i)
+        i += 1
+        self.assert_log_match(re.escape(
+            "[glpi] periodical commit volume: 1000 lines"
+        ), i)
+        i += 1
+        self.assert_log_match(re.escape(
+            "[glpi] periodical DB connection test period: 0s"
+        ), i)
+        i += 1
+
+        # Initialize the module - DB connection
+        self.clear_logs()
+        instance.host = '192.168.0.46'
+        instance.database = 'glpi'
+        instance.update_hosts = True
+        instance.init()
+
+        i = 0
+        self.assert_log_match(re.escape("[glpi] connecting to database glpi on %s..." % instance.host), i)
+        i += 1
+        self.assert_log_match(re.escape("[glpi] connected"), i)
+        i += 1
+        self.assert_log_match(re.escape("[glpi] database connection configured"), i)
+        i += 1
+        self.assert_log_match(re.escape("[glpi] initialized"), i)
+        i += 1
+
+        # Initial host status
+        # -----
+        self.clear_logs()
+        hcr = {
+            "host_name": "srv001",
+            "customs": {
+                "_ENTITIESID": "3",
+                "_HOSTSID": "4",
+                "_ITEMTYPE": "Computer",
+                "_ITEMSID": "6"
+            }
+        }
+        b = Brok({'data': hcr, 'type': 'initial_host_status'}, False)
+        b.prepare()
+        instance.manage_brok(b)
+        self.show_logs()
+        # The module inner cache stored the host
+        assert 'srv001' in instance.hosts_cache
+        # items_id is not yet set!
+        assert instance.hosts_cache['srv001'] == {
+            'realm_name': 'All',
+            'items_id': '6',
+            'itemtype': 'Computer',
+            'hostsid': '4',
+        }
+        assert instance.services_cache == {}
+
+        # Initial service status
+        # -----
+        scr = {
+            "host_name": "srv001",
+            "service_description": "disks",
+            "customs": {
+                "_ENTITIESID": "3",
+                "_HOSTITEMSID": "1",
+                "_HOSTITEMTYPE": "Computer",
+                "_ITEMTYPE": "Service",
+                "_ITEMSID": "1"
+            }
+        }
+        b = Brok({'data': scr, 'type': 'initial_service_status'}, False)
+        b.prepare()
+        instance.manage_brok(b)
+        self.show_logs()
+        # The module inner cache stored the host
+        assert 'srv001' in instance.hosts_cache
+        # items_id is not yet set!
+        assert instance.hosts_cache['srv001'] == {
+            'realm_name': 'All',
+            'items_id': '6',
+            'itemtype': 'Computer',
+            'hostsid': '4',
+        }
+        # The module inner cache stored the service
+        assert 'srv001/disks' in instance.services_cache
+        # items_id is not yet set!
+        assert instance.services_cache['srv001/disks'] == {
+            'itemtype': 'Service',
+            'items_id': '1'
+        }
+
+        # Host check result
+        # -----
+        hcr = {
+            "host_name": "srv001",
+
+            "last_time_unreachable": 0,
+            "last_problem_id": 0,
+            "passive_check": False,
+            "retry_interval": 1,
+            "last_event_id": 0,
+            "problem_has_been_acknowledged": False,
+            "command_name": "pm-check_linux_host_alive",
+            "last_state": "UP",
+            "latency": 0.2317881584,
+            "last_state_type": "HARD",
+            "last_hard_state_change": 1444427108,
+            "last_time_up": 0,
+            "percent_state_change": 0.0,
+            "state": "DOWN",
+            "last_chk": 1444427104,
+            "last_state_id": 0,
+            "end_time": 0,
+            "timeout": 0,
+            "current_event_id": 10,
+            "execution_time": 3.1496069431000002,
+            "start_time": 0,
+            "return_code": 2,
+            "state_type": "SOFT",
+            "output": "CRITICAL - Plugin timed out after 10 seconds",
+            "in_checking": True,
+            "early_timeout": 0,
+            "in_scheduled_downtime": False,
+            "attempt": 0,
+            "state_type_id": 1,
+            "acknowledgement_type": 1,
+            "last_state_change": 1444427108.040841,
+            "last_time_down": 1444427108,
+            "instance_id": 0,
+            "long_output": "",
+            "current_problem_id": 0,
+            "check_interval": 5,
+            "state_id": 2,
+            "has_been_checked": 1,
+            "perf_data": "uptime=1200 rta=0.049000ms;2.000000;3.000000;0.000000 pl=0%;50;80;0"
+        }
+        b = Brok({'data': hcr, 'type': 'host_check_result'}, False)
+        b.prepare()
+        instance.manage_brok(b)
+        self.show_logs()
+        # UPDATE glpi_plugin_monitoring_hosts set latency='0.2317881584' , execution_time='3.1496069431' , perf_data='uptime=1200 rta=0.049000ms;2.000000;3.000000;0.000000 pl=0%;50;80;0' , state_type='SOFT' , state='DOWN' , is_acknowledged='0' , last_check='2015-10-09 23:45:04' , event='CRITICAL - Plugin timed out after 10 seconds'  WHERE items_id='6' and itemtype='Computer'
+        # The module inner cache stored the host

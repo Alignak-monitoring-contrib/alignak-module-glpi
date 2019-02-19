@@ -1,7 +1,7 @@
-Alignak NSCA receiver Module
-============================
+Alignak GLPI broker Module
+==========================
 
-*Alignak NSCA module for the Alignak Receiver*
+*Alignak GLPI module for the Alignak broker*
 
 .. image:: https://landscape.io/github/Alignak-monitoring-contrib/alignak-module-glpi/develop/landscape.svg?style=flat
     :target: https://landscape.io/github/Alignak-monitoring-contrib/alignak-module-glpi/develop
@@ -44,7 +44,7 @@ Debian::
 
 CentOS::
 
-glpiFrom PyPI
+From PyPI
 ~~~~~~~~~
 To install the module from PyPI::
 
@@ -65,33 +65,29 @@ To install the module from the source files (for developing purpose)::
 Short description
 -----------------
 
-This module for Alignak receiver reads and decodes NSCA passive notifications to dispatch them into the Alignak framework.
+This module for Alignak broker allows to store information into the Glpi database when host/service checks results are received.
 
 
 Features / Known limitations
 ----------------------------
 
-Handles NSCA version 3 protocol
+Configuration
+-------------
 
-Check the NSCA packet timestamp for staled data (older than a certain amount of time) or 'future' data (future timestamp).
+On the MySQL server::
 
-Consider the `host_check` service received data as a passive host check. Useful if your NSCA client does not handle correctly the passive host check syntax ;)
+   CREATE USER 'alignak'@'localhost' IDENTIFIED BY 'alignak';
+   GRANT ALL PRIVILEGES ON glpidb.* TO 'alignak'@'localhost';
+   FLUSH PRIVILEGES;
 
-The NSCA module implementation is currently limited to the "xor" obfuscation/encryption.
 
-.. note:: To make the module add some information in the daemon log file, define the ``ALIGNAK_LOG_ACTIONS`` environment variable. It will dump a part of the received NSCA packets...
+.. note:: you should be more restrictive on DB tables ...
 
 Configuration
 -------------
 
 Once installed, this module has its own configuration file in the */usr/local/share/alignak/etc/alignak.d* directory.
 The default configuration file is *alignak-module-glpi.ini*. This file is commented to help configure all the parameters.
-
-The default configuration is convenient for 'recent' NSCA client implementing NSCA version 3.
-
-This configuration has been tested with Linux send_nsca 2.9.1 and Windows NSClient most recent versions (from 0.4.1).
-
-.. note:: received NSCA packets which are not containing version 3 information are dropped by the module!
 
 To configure Alignak broker to use this module:
 
