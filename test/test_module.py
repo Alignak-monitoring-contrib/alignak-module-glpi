@@ -123,43 +123,43 @@ class TestModules(AlignakTest):
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] using 'glpidb' database on 127.0.0.1:3306 (user = alignak)"
+            "using 'glpidb' database on 127.0.0.1:3306 (user = alignak)"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating availability: False"
+            "updating availability: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating Shinken state: False"
+            "updating Shinken state: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating services events: False"
+            "updating services events: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating hosts states: False"
+            "updating hosts states: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating services states: False"
+            "updating services states: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating acknowledges states: False"
+            "updating acknowledges states: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] periodical commit period: 60s"
+            "periodical commit period: 60s"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] periodical commit volume: 1000 lines"
+            "periodical commit volume: 1000 lines"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] periodical DB connection test period: 0s"
+            "periodical DB connection test period: 0s"
         ), i)
         i += 1
 
@@ -198,43 +198,43 @@ class TestModules(AlignakTest):
         # ), i)
         # i += 1
         self.assert_log_match(re.escape(
-            "[glpi] using 'glpidb' database on 127.0.0.1:3306 (user = alignak)"
+            "using 'glpidb' database on 127.0.0.1:3306 (user = alignak)"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating availability: False"
+            "updating availability: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating Shinken state: False"
+            "updating Shinken state: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating services events: False"
+            "updating services events: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating hosts states: False"
+            "updating hosts states: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating services states: False"
+            "updating services states: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating acknowledges states: False"
+            "updating acknowledges states: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] periodical commit period: 60s"
+            "periodical commit period: 60s"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] periodical commit volume: 1000 lines"
+            "periodical commit volume: 1000 lines"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] periodical DB connection test period: 0s"
+            "periodical DB connection test period: 0s"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
@@ -275,43 +275,43 @@ class TestModules(AlignakTest):
         # ), i)
         # i += 1
         self.assert_log_match(re.escape(
-            "[glpi] using 'glpidb' database on 127.0.0.1:3306 (user = alignak)"
+            "using 'glpidb' database on 127.0.0.1:3306 (user = alignak)"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating availability: False"
+            "updating availability: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating Shinken state: False"
+            "updating Shinken state: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating services events: False"
+            "updating services events: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating hosts states: False"
+            "updating hosts states: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating services states: False"
+            "updating services states: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating acknowledges states: False"
+            "updating acknowledges states: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] periodical commit period: 60s"
+            "periodical commit period: 60s"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] periodical commit volume: 1000 lines"
+            "periodical commit volume: 1000 lines"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] periodical DB connection test period: 0s"
+            "periodical DB connection test period: 0s"
         ), i)
         i += 1
 
@@ -521,43 +521,43 @@ class TestModules(AlignakTest):
 
         i = 0
         self.assert_log_match(re.escape(
-            "[glpi] using 'glpidb' database on 127.0.0.1:3306 (user = alignak)"
+            "using 'glpidb' database on 127.0.0.1:3306 (user = alignak)"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating availability: False"
+            "updating availability: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating Shinken state: False"
+            "updating Shinken state: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating services events: False"
+            "updating services events: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating hosts states: False"
+            "updating hosts states: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating services states: False"
+            "updating services states: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating acknowledges states: False"
+            "updating acknowledges states: False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] periodical commit period: 60s"
+            "periodical commit period: 60s"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] periodical commit volume: 1000 lines"
+            "periodical commit volume: 1000 lines"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] periodical DB connection test period: 0s"
+            "periodical DB connection test period: 0s"
         ), i)
         i += 1
 
@@ -589,53 +589,61 @@ class TestModules(AlignakTest):
 
         i = 0
         self.assert_log_match(re.escape(
-            "[glpi] using 'glpi' database on 127.0.0.1:3306 (user = alignak)"
+            "using 'glpi' database on 127.0.0.1:3306 (user = alignak)"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating services events: False"
+            "updating hosts states (glpi_plugin_monitoring_hosts): False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating hosts states: False"
+            "updating services states (glpi_plugin_monitoring_services): False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating services states: False"
+            "updating services events (glpi_plugin_monitoring_serviceevents): False"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] updating acknowledges states: False"
+            "periodical commit period: 60s"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] periodical commit period: 60s"
+            "periodical commit volume: 1000 lines"
         ), i)
         i += 1
         self.assert_log_match(re.escape(
-            "[glpi] periodical commit volume: 1000 lines"
-        ), i)
-        i += 1
-        self.assert_log_match(re.escape(
-            "[glpi] periodical DB connection test period: 0s"
+            "periodical DB connection test period: 0s"
         ), i)
         i += 1
 
         # Initialize the module - DB connection
         self.clear_logs()
-        instance.host = '192.168.0.46'
-        instance.database = 'glpi'
+        instance.host = '192.168.43.177'
+        instance.database = 'glpi-9.3'
+        instance.user = 'glpi'
+        instance.password = 'glpi'
         instance.update_hosts = True
+        instance.update_services = True
+        instance.update_services_events = True
         instance.init()
 
+        # instance.check_database()
+
         i = 0
-        self.assert_log_match(re.escape("[glpi] connecting to database glpi on %s..." % instance.host), i)
+        self.assert_log_match(re.escape("connecting to database glpi-9.3 on %s..." % instance.host), i)
         i += 1
-        self.assert_log_match(re.escape("[glpi] connected"), i)
+        self.assert_log_match(re.escape("connected"), i)
         i += 1
-        self.assert_log_match(re.escape("[glpi] database connection configured"), i)
+        self.assert_log_match(re.escape("database connection configured"), i)
         i += 1
-        self.assert_log_match(re.escape("[glpi] initialized"), i)
+        self.assert_log_match(re.escape("updating hosts states is enabled"), i)
+        i += 1
+        self.assert_log_match(re.escape("updating services states is enabled"), i)
+        i += 1
+        self.assert_log_match(re.escape("updating services events is enabled"), i)
+        i += 1
+        self.assert_log_match(re.escape("initialized"), i)
         i += 1
 
         # Initial host status

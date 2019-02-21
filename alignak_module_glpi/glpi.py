@@ -63,7 +63,7 @@ properties = {
 }
 
 
-def get_instance(plugin):
+def get_instance(mod_conf):
     """
     Return a module instance for the modules manager
 
@@ -71,7 +71,7 @@ def get_instance(plugin):
     :return:
     """
     # logger.info("Get a glpidb data module for plugin %s" % plugin.get_name())
-    return Glpidb_broker(plugin)
+    return Glpidb_broker(mod_conf)
 
 
 class Glpidb_broker(BaseModule):
@@ -115,14 +115,23 @@ class Glpidb_broker(BaseModule):
                     self.database, self.host, self.port, self.user)
 
         # Database tables update configuration
-        self.update_services_events = bool(getattr(mod_conf, 'update_services_events', '0') == '1')
+        self.hosts_table = getattr(mod_conf, 'hosts_table',
+                                   'glpi_plugin_monitoring_hosts')
         self.update_hosts = bool(getattr(mod_conf, 'update_hosts', '0') == '1')
+        logger.info("updating hosts states (%s): %s",
+                    self.hosts_table, self.update_hosts)
+
         self.update_services = bool(getattr(mod_conf, 'update_services', '0') == '1')
-        self.update_acknowledges = bool(getattr(mod_conf, 'update_acknowledges', '0') == '1')
-        logger.info("updating services events: %s", self.update_services_events)
-        logger.info("updating hosts states: %s", self.update_hosts)
-        logger.info("updating services states: %s", self.update_services)
-        logger.info("updating acknowledges states: %s", self.update_acknowledges)
+        self.services_table = getattr(mod_conf, 'services_table',
+                                      'glpi_plugin_monitoring_services')
+        logger.info("updating services states (%s): %s",
+                    self.services_table, self.update_services)
+
+        self.update_services_events = bool(getattr(mod_conf, 'update_services_events', '0') == '1')
+        self.serviceevents_table = getattr(mod_conf, 'serviceevents_table',
+                                           'glpi_plugin_monitoring_serviceevents')
+        logger.info("updating services events (%s): %s",
+                    self.serviceevents_table, self.update_services_events)
 
         self.db = None
         self.db_cursor = None
@@ -138,10 +147,19 @@ class Glpidb_broker(BaseModule):
         logger.info('periodical DB connection test period: %ds', self.db_test_period)
 
     def init(self):
-        """Module initialization"""
-        self.open()
+        """Module initialization
+        Open database connection and check tables structure"""
+        if self.open():
+            self.check_database()
         logger.info("initialized")
         return True
+
+    def do_loop_turn(self):
+        """This function is called/used when you need a module with
+        a loop function (and use the parameter 'external': True)
+        """
+        logger.info("In loop")
+        time.sleep(1)
 
     def open(self, force=False):
         """
@@ -177,17 +195,86 @@ class Glpidb_broker(BaseModule):
         self.db.close()
         logger.info('database connection closed')
 
+    def check_database(self):
+        try:
+            count = 0
+            self.db_cursor.execute("SHOW COLUMNS FROM %s" % self.hosts_table)
+            columns = self.db_cursor.fetchall()
+            logger.debug("Hosts table, got: ")
+            for column in columns:
+                if column[0] in ['entities_id', 'itemtype', 'items_id', 'state', 'state_type',
+                                 'last_check', 'event', 'perf_data', 'latency', 'execution_time',
+                                 'is_acknowledged']:
+                    count += 1
+                logger.debug('-: %s', column)
+            logger.debug("-> %d columns", count)
+            if self.update_hosts and count < 11:
+                self.update_hosts = False
+                logger.warning("updating hosts state is not possible because of DB structure")
+        except Exception as exp:
+            logger.warning("Hosts table columns request, error: %s", exp)
+            self.update_hosts = False
+            logger.warning("updating hosts state is not possible because of DB structure")
+
+        if self.update_hosts:
+            logger.info("updating hosts states is enabled")
+
+        try:
+            count = 0
+            self.db_cursor.execute('SHOW COLUMNS FROM %s' % self.services_table)
+            columns = self.db_cursor.fetchall()
+            logger.debug("Services table, got: ")
+            for column in columns:
+                if column[0] in ['id', 'entities_id', 'state', 'state_type', 'last_check', 'event',
+                                 'perf_data', 'latency', 'execution_time', 'is_acknowledged']:
+                    count += 1
+                logger.debug('-: %s', column)
+            logger.debug("-> %d columns", count)
+            if self.update_services and count < 7:
+                self.update_services = False
+                logger.warning("updating services state is not possible because of DB structure")
+        except Exception as exp:
+            logger.warning("Services table columns request, error: %s", exp)
+            self.update_hosts = False
+            logger.warning("updating services state is not possible because of DB structure")
+
+        if self.update_services:
+            logger.info("updating services states is enabled")
+
+        try:
+            count = 0
+            self.db_cursor.execute('SHOW COLUMNS FROM %s' % self.serviceevents_table)
+            columns = self.db_cursor.fetchall()
+            logger.debug("Services events table, got: ")
+            for column in columns:
+                if column[0] in ['plugin_monitoring_services_id', 'date', 'state', 'state_type',
+                                 'last_check', 'event', 'perf_data', 'latency', 'execution_time']:
+                    count += 1
+                logger.debug('-: %s', column)
+            logger.debug("-> %d columns", count)
+            if self.update_services_events and count < 8:
+                self.update_services_events = False
+                logger.warning("updating services events is not possible because of DB structure")
+        except Exception as exp:
+            logger.warning("Services events table columns request, error: %s", exp)
+            self.update_hosts = False
+            logger.warning("updating services events is not possible because of DB structure")
+
+        if self.update_services_events:
+            logger.info("updating services events is enabled")
+
     def stringify(self, val):
         """Get a unicode from a value"""
-        # If raw string, go in unicode
-        if isinstance(val, str):
-            val = val.decode('utf8', 'ignore').replace("'", "''")
-        elif isinstance(val, unicode):
-            val = val.replace("'", "''")
-        else:  # other type, we can str
-            val = unicode(str(val))
-            val = val.replace("'", "''")
-        return val
+        return "%s" % val
+        # # If raw string, go in unicode
+        # if isinstance(val, str):
+        #     val = val.decode('utf8', 'ignore').replace("'", "''")
+        # elif isinstance(val, unicode):
+        #     val = val.replace("'", "''")
+        # else:  # other type, we can str
+        #     val = unicode(str(val))
+        #     val = val.replace("'", "''")
+        # return val
 
     def create_insert_query(self, table, data):
         """Create a INSERT query in table with all data of data (a dict)"""
@@ -300,8 +387,8 @@ class Glpidb_broker(BaseModule):
         Peridically called (commit_period), this method prepares a bunch of queued
         insertions (max. commit_volume) to insert them in the DB.
         """
-        logger.info("bulk insertion ... %d events in cache (max insertion is %d lines)",
-                    len(self.events_cache), self.commit_volume)
+        logger.debug("bulk insertion ... %d events in cache (max insertion is %d lines)",
+                     len(self.events_cache), self.commit_volume)
 
         if not self.events_cache:
             logger.info("bulk insertion ... nothing to insert.")
@@ -376,7 +463,7 @@ class Glpidb_broker(BaseModule):
             except IndexError:
                 logger.debug("prepared all available events for commit")
                 break
-            except Exception, exp:
+            except Exception as exp:
                 logger.error("exception: %s", str(exp))
         logger.info("time to prepare %s events for commit (%2.4f)", events_to_commit - 1,
                     time.time() - now)
@@ -393,7 +480,7 @@ class Glpidb_broker(BaseModule):
 
     def manage_brok(self, b):
         """Got a brok, manage only the interesting broks"""
-        logger.info("Got a brok: %s", b)
+        logger.debug("Got a brok: %s", b)
 
         # Build initial host state cache
         if b.type == 'initial_host_status':
@@ -455,11 +542,11 @@ class Glpidb_broker(BaseModule):
             logger.debug("host check result: %s: %s", host_name)
 
             if host_name not in self.hosts_cache:
-                logger.warning("got a host check result for an unknown host: %s", host_name)
+                logger.debug("got a host check result for an unknown host: %s", host_name)
                 return
 
             if self.hosts_cache[host_name]['items_id'] is None:
-                logger.warning("unknown DB information for the host: %s", host_name)
+                logger.debug("unknown DB information for the host: %s", host_name)
                 return
 
             start = time.time()
@@ -530,8 +617,11 @@ class Glpidb_broker(BaseModule):
             'is_acknowledged': '1' if b.data['problem_has_been_acknowledged'] else '0'
         }
 
-        where_clause = {'items_id': host_cache['items_id'], 'itemtype': host_cache['itemtype']}
-        query = self.create_update_query('glpi_plugin_monitoring_hosts', data, where_clause)
+        where_clause = {
+            'items_id': host_cache['items_id'],
+            'itemtype': host_cache['itemtype']
+        }
+        query = self.create_update_query(self.hosts_table, data, where_clause)
         logger.debug("query: %s", query)
         try:
             self.execute_query(query)
@@ -554,21 +644,21 @@ class Glpidb_broker(BaseModule):
         # Insert into serviceevents log table
         if self.update_services_events:
             # SQL table is: CREATE TABLE `glpi_plugin_monitoring_serviceevents` (
-            #   `id` bigint(30) NOT NULL AUTO_INCREMENT,
-            #   `plugin_monitoring_services_id` int(11) NOT NULL DEFAULT '0',
-            #   `date` datetime DEFAULT NULL,
-            #   `event` varchar(4096) COLLATE utf8_unicode_ci DEFAULT NULL,
-            #   `perf_data` text DEFAULT NULL COLLATE utf8_unicode_ci,
-            #   `state` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT '0',
-            #   `state_type` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT '0',
-            #   `latency` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
-            #   `execution_time` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
-            #   `unavailability` tinyint(1) NOT NULL DEFAULT '0',
-            #   PRIMARY KEY (`id`),
-            #   KEY `plugin_monitoring_services_id` (`plugin_monitoring_services_id`),
-            #   KEY `plugin_monitoring_services_id_2` (`plugin_monitoring_services_id`,`date`),
-            #   KEY `unavailability` (`unavailability`,`state_type`,`plugin_monitoring_services_id`),
-            #   KEY `plugin_monitoring_services_id_3` (`plugin_monitoring_services_id`,`id`)
+            # `id` bigint(30) NOT NULL AUTO_INCREMENT,
+            # `plugin_monitoring_services_id` int(11) NOT NULL DEFAULT '0',
+            # `date` datetime DEFAULT NULL,
+            # `event` varchar(4096) COLLATE utf8_unicode_ci DEFAULT NULL,
+            # `perf_data` text DEFAULT NULL COLLATE utf8_unicode_ci,
+            # `state` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT '0',
+            # `state_type` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT '0',
+            # `latency` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
+            # `execution_time` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
+            # `unavailability` tinyint(1) NOT NULL DEFAULT '0',
+            # PRIMARY KEY (`id`),
+            # KEY `plugin_monitoring_services_id` (`plugin_monitoring_services_id`),
+            # KEY `plugin_monitoring_services_id_2` (`plugin_monitoring_services_id`,`date`),
+            # KEY `unavailability` (`unavailability`,`state_type`,`plugin_monitoring_services_id`),
+            # KEY `plugin_monitoring_services_id_3` (`plugin_monitoring_services_id`,`id`)
             # ) ENGINE=MyISAM  DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
             logger.info("append data to events_cache for service: %s", service_id)
             data = {
@@ -590,25 +680,26 @@ class Glpidb_broker(BaseModule):
         # Update service state table
         if self.update_services:
             # SQL table is: CREATE TABLE `glpi_plugin_monitoring_services` (
-            #   `id` int(11) NOT NULL AUTO_INCREMENT,
-            #   `entities_id` int(11) NOT NULL DEFAULT '0',
-            #   `name` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
-            #   `plugin_monitoring_components_id` int(11) NOT NULL DEFAULT '0',
-            #   `plugin_monitoring_componentscatalogs_hosts_id` int(11) NOT NULL DEFAULT '0',
-            #   `event` varchar(4096) COLLATE utf8_unicode_ci DEFAULT NULL,
-            #   `state` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
-            #   `state_type` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
-            #   `last_check` datetime DEFAULT NULL,
-            #   `arguments` text DEFAULT NULL COLLATE utf8_unicode_ci,
-            #   `networkports_id` int(11) NOT NULL DEFAULT '0',
-            #   `is_acknowledged` tinyint(1) NOT NULL DEFAULT '0',
-            #   `is_acknowledgeconfirmed` tinyint(1) NOT NULL DEFAULT '0',
-            #   `acknowledge_comment` text DEFAULT NULL COLLATE utf8_unicode_ci,
-            #   `acknowledge_users_id` int(11) NOT NULL DEFAULT '0',
-            #   PRIMARY KEY (`id`),
-            #   KEY `state` (`state`(50),`state_type`(50)),
-            #   KEY `plugin_monitoring_componentscatalogs_hosts_id` (`plugin_monitoring_componentscatalogs_hosts_id`),
-            #   KEY `last_check` (`last_check`)
+            # `id` int(11) NOT NULL AUTO_INCREMENT,
+            # `entities_id` int(11) NOT NULL DEFAULT '0',
+            # `name` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
+            # `plugin_monitoring_components_id` int(11) NOT NULL DEFAULT '0',
+            # `plugin_monitoring_componentscatalogs_hosts_id` int(11) NOT NULL DEFAULT '0',
+            # `event` varchar(4096) COLLATE utf8_unicode_ci DEFAULT NULL,
+            # `state` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
+            # `state_type` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
+            # `last_check` datetime DEFAULT NULL,
+            # `arguments` text DEFAULT NULL COLLATE utf8_unicode_ci,
+            # `networkports_id` int(11) NOT NULL DEFAULT '0',
+            # `is_acknowledged` tinyint(1) NOT NULL DEFAULT '0',
+            # `is_acknowledgeconfirmed` tinyint(1) NOT NULL DEFAULT '0',
+            # `acknowledge_comment` text DEFAULT NULL COLLATE utf8_unicode_ci,
+            # `acknowledge_users_id` int(11) NOT NULL DEFAULT '0',
+            # PRIMARY KEY (`id`),
+            # KEY `state` (`state`(50),`state_type`(50)),
+            # KEY `plugin_monitoring_componentscatalogs_hosts_id`
+            # (`plugin_monitoring_componentscatalogs_hosts_id`),
+            # KEY `last_check` (`last_check`)
             # ) ENGINE=MyISAM  DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
             data = {
                 'event': "%s \n %s" % (b.data['output'], b.data['long_output']) if (
@@ -620,10 +711,7 @@ class Glpidb_broker(BaseModule):
                 'is_acknowledged': '1' if b.data['problem_has_been_acknowledged'] else '0'
             }
             where_clause = {'id': service_cache['items_id']}
-            table = 'glpi_plugin_monitoring_services'
-            if service_cache['itemtype'] == 'ServiceCatalog':
-                table = 'glpi_plugin_monitoring_servicescatalogs'
-            query = self.create_update_query(table, data, where_clause)
+            query = self.create_update_query(self.services_table, data, where_clause)
             try:
                 self.execute_query(query)
             except Exception as exp:
