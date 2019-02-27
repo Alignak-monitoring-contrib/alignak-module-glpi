@@ -114,6 +114,8 @@ class Glpidb_broker(BaseModule):
         logger.info("using '%s' database on %s:%d (user = %s)",
                     self.database, self.host, self.port, self.user)
 
+        self.source = getattr(mod_conf, 'source', 'alignak')
+
         # Database tables update configuration
         self.hosts_table = getattr(mod_conf, 'hosts_table',
                                    'glpi_plugin_monitoring_hosts')
@@ -203,7 +205,7 @@ class Glpidb_broker(BaseModule):
             logger.debug("Hosts table, got: ")
             for column in columns:
                 if column[0] in ['entities_id', 'itemtype', 'items_id', 'state', 'state_type',
-                                 'last_check', 'event', 'perf_data', 'latency', 'execution_time',
+                                 'last_check', 'output', 'perf_data', 'latency', 'execution_time',
                                  'is_acknowledged']:
                     count += 1
                 logger.debug('-: %s', column)
@@ -225,7 +227,7 @@ class Glpidb_broker(BaseModule):
             columns = self.db_cursor.fetchall()
             logger.debug("Services table, got: ")
             for column in columns:
-                if column[0] in ['id', 'entities_id', 'state', 'state_type', 'last_check', 'event',
+                if column[0] in ['id', 'entities_id', 'state', 'state_type', 'last_check', 'output',
                                  'perf_data', 'latency', 'execution_time', 'is_acknowledged']:
                     count += 1
                 logger.debug('-: %s', column)
@@ -278,24 +280,21 @@ class Glpidb_broker(BaseModule):
 
     def create_insert_query(self, table, data):
         """Create a INSERT query in table with all data of data (a dict)"""
-        query = u"INSERT INTO %s " % (table)
+        query = u"INSERT INTO `%s` " % table
         props_str = u' ('
         values_str = u' ('
-        i = 0  # f or the ',' problem... look like C here...
+        first_field = True
         for prop in data:
-            i += 1
             val = data[prop]
             # Boolean must be catch, because we want 0 or 1, not True or False
             if isinstance(val, bool):
-                if val:
-                    val = 1
-                else:
-                    val = 0
+                val = 1 if val else 0
 
             # Get a string of the value
             val = self.stringify(val)
 
-            if i == 1:
+            if first_field:
+                first_field = False
                 props_str = props_str + u"%s " % prop
                 values_str = values_str + u"'%s' " % val
             else:
@@ -312,67 +311,94 @@ class Glpidb_broker(BaseModule):
         """Create a update query of table with data, and use where data for
         the WHERE clause
         """
-        query = u"UPDATE %s set " % (table)
-
-        # First data manage
-        query_follow = ''
-        i = 0  # for the , problem...
+        fields = []
         for prop in data:
             # Do not need to update a property that is in where
             # it is even dangerous, will raise a warning
-            if prop not in where_data:
-                i += 1
-                val = data[prop]
-                # Boolean must be catched, because we want 0 or 1, not True or False
-                if isinstance(val, bool):
-                    if val:
-                        val = 1
-                    else:
-                        val = 0
+            if prop in where_data:
+                continue
 
-                # Get a string of the value
-                val = self.stringify(val)
+            val = data[prop]
+            # Boolean must be catched, because we want 0 or 1, not True or False
+            if isinstance(val, bool):
+                val = 1 if val else 0
 
-                if i == 1:
-                    query_follow += u"%s='%s' " % (prop, val)
-                else:
-                    query_follow += u", %s='%s' " % (prop, val)
+            # Get a string of the value
+            fields.append(u"`%s`='%s' " % (prop, self.stringify(val)))
+
+        query = u"UPDATE `%s` SET %s" % (table, ', '.join(fields))
 
         # Ok for data, now WHERE, same things
-        where_clause = u" WHERE "
-        i = 0  # For the 'and' problem
+        fields = []
         for prop in where_data:
-            i += 1
             val = where_data[prop]
             # Boolean must be catch, because we want 0 or 1, not True or False
             if isinstance(val, bool):
-                if val:
-                    val = 1
-                else:
-                    val = 0
+                val = 1 if val else 0
 
             # Get a string of the value
-            val = self.stringify(val)
+            fields.append(u"`%s`='%s' " % (prop, self.stringify(val)))
 
-            if i == 1:
-                where_clause += u"%s='%s' " % (prop, val)
-            else:
-                where_clause += u"and %s='%s' " % (prop, val)
+        return query + u" WHERE " + 'AND '.join(fields)
 
-        query = query + query_follow + where_clause
-        return query
+    def create_update_insert_query(self, table, data, where_data):
+        """Create a update query of table with data, and use where data for
+        the WHERE clause
+        """
+        fields = [u"`%s`" % prop for prop in data if prop not in where_data]
+        query = u"INSERT INTO `%s` (%s)" % (table, ', '.join(fields))
+
+        fields = []
+        for prop in data:
+            # Do not need to update a property that is in where
+            # it is even dangerous, will raise a warning
+            if prop in where_data:
+                continue
+
+            val = data[prop]
+            # Boolean must be catched, because we want 0 or 1, not True or False
+            if isinstance(val, bool):
+                val = 1 if val else 0
+
+            # Get a string of the value
+            fields.append(u"'%s' " % self.stringify(val))
+
+        query += u" VALUES (%s)" % ', '.join(fields)
+
+        # Ok for data, now WHERE, same things
+        fields = []
+        for prop in where_data:
+            val = where_data[prop]
+            # Boolean must be catch, because we want 0 or 1, not True or False
+            if isinstance(val, bool):
+                val = 1 if val else 0
+
+            # Get a string of the value
+            fields.append(u"`%s`='%s' " % (prop, self.stringify(val)))
+
+        return query + u" WHERE " + 'AND '.join(fields)
 
     def execute_query(self, query):
         """Just run the query
         """
-        logger.debug("run query %s", query)
+        logger.info("run query %s", query)
         try:
             self.db_cursor.execute(query)
             self.db.commit()
-            return True
+            logger.debug("Cursor: %s / %s", type(self.db_cursor), self.db_cursor.__dict__)
+
+            if 'INSERT' in self.db_cursor._executed:
+                logger.warning("Inserted %d rows", self.db_cursor.rowcount)
+                return self.db_cursor.rowcount
+            if 'UPDATE' in self.db_cursor._executed:
+                logger.warning("Updated %d rows", self.db_cursor.rowcount)
+                return self.db_cursor.rowcount
+
+            return 0
         except Exception as exp:
             logger.warning("A query raised an error: %s, error: %s", query, exp)
-            return False
+            self.db.rollback()
+            return -1
 
     def fetchone(self):
         """Just get an entry"""
@@ -391,7 +417,7 @@ class Glpidb_broker(BaseModule):
                      len(self.events_cache), self.commit_volume)
 
         if not self.events_cache:
-            logger.info("bulk insertion ... nothing to insert.")
+            logger.debug("bulk insertion ... nothing to insert.")
             return
 
         if not self.is_connected:
@@ -420,10 +446,10 @@ class Glpidb_broker(BaseModule):
 
                 if first:
                     props_str = u' ('
-                    i = 0
+                    first_field = True
                     for prop in event:
-                        i += 1
-                        if i == 1:
+                        if first_field:
+                            first_field = False
                             props_str = props_str + u"%s " % prop
                         else:
                             props_str = props_str + u", %s " % prop
@@ -431,22 +457,19 @@ class Glpidb_broker(BaseModule):
                     query = query + props_str + u' VALUES'
                     first = False
 
-                i = 0
+                first_field = True
                 values_str = u' ('
                 for prop in event:
-                    i += 1
                     val = event[prop]
                     # Boolean must be catched, because we want 0 or 1, not True or False
                     if isinstance(val, bool):
-                        if val:
-                            val = 1
-                        else:
-                            val = 0
+                        val = 1 if val else 0
 
                     # Get a string for the value
                     val = self.stringify(val)
 
-                    if i == 1:
+                    if first_field:
+                        first_field = False
                         values_str = values_str + u"'%s' " % val
                     else:
                         values_str = values_str + u", '%s' " % val
@@ -495,17 +518,22 @@ class Glpidb_broker(BaseModule):
             try:
                 # Data used for DB updates
                 logger.debug("initial host status : %s : %s", host_name, b.data['customs'])
+                cached_item = True
                 self.hosts_cache[host_name].update({
                     'hostsid': b.data['customs']['_HOSTSID'],
                     'itemtype': b.data['customs']['_ITEMTYPE'],
                     'items_id': b.data['customs']['_ITEMSID']
                 })
             except Exception:
-                self.hosts_cache[host_name].update({
-                    'items_id': None
-                })
+                cached_item = False
+                self.hosts_cache[host_name].update({'items_id': None})
                 logger.debug("no custom _HOSTID and/or _ITEMTYPE and/or _ITEMSID for %s",
                              host_name)
+
+            if self.update_hosts or self.update_services_events:
+                start = time.time()
+                self.record_host_check_result(b, cached_item, True)
+                logger.debug("host check result: %s, %d seconds", host_name, time.time() - start)
 
             logger.info("initial host status : %s is %s", host_name,
                         self.hosts_cache[host_name]['items_id'])
@@ -523,21 +551,28 @@ class Glpidb_broker(BaseModule):
                 return
 
             try:
-                logger.debug("initial service status : %s : %s", service_id,
-                             b.data['customs'])
+                logger.debug("initial service status : %s : %s", service_id, b.data['customs'])
+                cached_item = True
                 self.services_cache[service_id] = {
-                    'itemtype': b.data['customs']['_ITEMTYPE'],
                     'items_id': b.data['customs']['_ITEMSID']
                 }
             except:
+                cached_item = False
                 self.services_cache[service_id] = {'items_id': None}
                 logger.debug("no custom _ITEMTYPE and/or _ITEMSID for %s", service_id)
+
+            if self.update_services or self.update_services_events:
+                start = time.time()
+                self.record_service_check_result(b, cached_item, True)
+                logger.debug("service check result: %s, %d seconds", service_id,
+                             time.time() - start)
 
             logger.info("initial service status : %s is %s",
                         service_id, self.services_cache[service_id]['items_id'])
 
         # Manage host check result if host is defined in Glpi DB
-        if b.type == 'host_check_result' and self.update_hosts:
+        if b.type == 'host_check_result' and \
+                (self.update_hosts or self.update_services_events):
             host_name = b.data['host_name']
             logger.debug("host check result: %s: %s", host_name)
 
@@ -545,12 +580,13 @@ class Glpidb_broker(BaseModule):
                 logger.debug("got a host check result for an unknown host: %s", host_name)
                 return
 
+            cached_item = True
             if self.hosts_cache[host_name]['items_id'] is None:
                 logger.debug("unknown DB information for the host: %s", host_name)
-                return
+                cached_item = False
 
             start = time.time()
-            self.record_host_check_result(b)
+            self.record_host_check_result(b, cached_item)
             logger.debug("host check result: %s, %d seconds", host_name, time.time() - start)
 
         # Manage service check result if service is defined in Glpi DB
@@ -561,74 +597,142 @@ class Glpidb_broker(BaseModule):
             service_id = host_name + "/" + service_description
             logger.debug("service check result: %s", service_id)
 
-            if host_name in self.hosts_cache and \
-                    self.hosts_cache[host_name]['items_id'] is not None:
-                if service_id in self.services_cache and \
-                        self.services_cache[service_id]['items_id'] is not None:
-                    start = time.time()
-                    self.record_service_check_result(b)
-                    logger.debug("service check result: %s, %d seconds", service_id,
-                                 time.time() - start)
+            if host_name not in self.hosts_cache:
+                logger.debug("service check result for an unknown host: %s", service_id)
+                return
 
-    def record_host_check_result(self, b):
+            cached_item = True
+            if self.hosts_cache[host_name]['items_id'] is None:
+                logger.debug("unknown DB information for the host: %s", host_name)
+                cached_item = False
+
+            if self.services_cache[service_id]['items_id'] is None:
+                logger.debug("unknown DB information for the service: %s", service_id)
+                cached_item = False
+
+            start = time.time()
+            self.record_service_check_result(b, cached_item)
+            logger.debug("service check result: %s, %d seconds", service_id, time.time() - start)
+
+    def record_host_check_result(self, b, cached_item, intial_status=False):
         """Record an host check result"""
         host_name = b.data['host_name']
         host_cache = self.hosts_cache[host_name]
-        logger.info("record host check result: %s: %s", host_name, b.data)
+        logger.debug("record host check result: %s: %s", host_name, b.data)
 
         # Escape SQL fields ...
         # b.data['output'] = MySQLdb.escape_string(b.data['output'])
         # b.data['long_output'] = MySQLdb.escape_string(b.data['long_output'])
         # b.data['perf_data'] = MySQLdb.escape_string(b.data['perf_data'])
 
-        # SQL table is: CREATE TABLE `glpi_plugin_monitoring_hosts` (
-        #   `id` int(11) NOT NULL AUTO_INCREMENT,
-        #   `entities_id` int(11) NOT NULL DEFAULT '0',
-        #   `itemtype` varchar(100) DEFAULT NULL,
-        #   `items_id` int(11) NOT NULL DEFAULT '0',
-        #   `event` varchar(4096) COLLATE utf8_unicode_ci DEFAULT NULL,
-        #   `state` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
-        #   `state_type` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
-        #   `last_check` datetime DEFAULT NULL,
-        #   `dependencies` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
-        #   `perf_data` text DEFAULT NULL COLLATE utf8_unicode_ci,
-        #   `latency` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
-        #   `execution_time` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
-        #   `is_acknowledged` tinyint(1) NOT NULL DEFAULT '0',
-        # Following fields may be removed?
-        #   `is_acknowledgeconfirmed` tinyint(1) NOT NULL DEFAULT '0',
-        #   `acknowledge_comment` text DEFAULT NULL COLLATE utf8_unicode_ci,
-        #   `acknowledge_users_id` int(11) NOT NULL DEFAULT '0',
-        #   `backend_host_id` varchar(50) NOT NULL DEFAULT '0',
-        #   `backend_host_id_auto` tinyint(1) NOT NULL DEFAULT '0',
-        #   PRIMARY KEY (`id`),
-        #   KEY `itemtype` (`itemtype`,`items_id`)
-        # ) ENGINE=MyISAM  DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
-        data = {
-            'state': b.data['state'],
-            'state_type': b.data['state_type'],
-            'last_check': datetime.datetime.fromtimestamp(int(b.data['last_chk'])).strftime(
-                '%Y-%m-%d %H:%M:%S'),
-            'event': "%s \n %s" % (b.data['output'], b.data['long_output']) if (
-                    len(b.data['long_output']) > 0) else b.data['output'],
-            'perf_data': b.data['perf_data'],
-            'latency': b.data['latency'],
-            'execution_time': b.data['execution_time'],
-            'is_acknowledged': '1' if b.data['problem_has_been_acknowledged'] else '0'
-        }
+        # Insert into serviceevents log table
+        if self.update_services_events:
+            # SQL table is: CREATE TABLE IF NOT EXISTS `glpi_plugin_monitoring_serviceevents` (
+            #   `id` bigint(30) NOT NULL AUTO_INCREMENT,
+            #   `host_name` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT 'not_set',
+            #   `service_description` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT 'not_set',
+            #   `plugin_monitoring_services_id` int(11) NOT NULL DEFAULT '-1',
+            #   `date` datetime DEFAULT NULL,
+            #   `state` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT '0',
+            #   `state_type` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT '0',
+            #   `state_id` tinyint(1) NOT NULL DEFAULT '0',
+            #   `state_type_id` tinyint(1) NOT NULL DEFAULT '0',
+            #   `last_state_id` tinyint(1) NOT NULL DEFAULT '0',
+            #   `last_hard_state_id` tinyint(1) NOT NULL DEFAULT '0',
+            #   `output` text COLLATE utf8_unicode_ci DEFAULT NULL,
+            #   `perf_data` text DEFAULT NULL COLLATE utf8_unicode_ci,
+            #   `unavailability` tinyint(1) NOT NULL DEFAULT '0',
+            #   PRIMARY KEY (`id`),
+            #   KEY `plugin_monitoring_services_id` (`plugin_monitoring_services_id`),
+            #   KEY `plugin_monitoring_services_id_2` (`plugin_monitoring_services_id`,`date`),
+            #   KEY `plugin_monitoring_services_id_3` (`plugin_monitoring_services_id`,`id`),
+            #   KEY `service` (`host_name`(50),`service_description`(50)),
+            #   KEY `unavailability` (`unavailability`,`state_type`,`plugin_monitoring_services_id`)
+            # ) ENGINE=MyISAM  DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+            logger.info("append data to events_cache for service: %s", service_id)
+            data = {
+                'host_name': b.data['host_name'],
+                'service_description': b.data['service_description'],
+                'date': datetime.datetime.fromtimestamp(int(b.data['last_chk'])).strftime(
+                    '%Y-%m-%d %H:%M:%S'),
+                'output': ("%s\n%s", b.data['output'], b.data['long_output']) if (
+                        len(b.data['long_output']) > 0) else b.data['output'],
+                'perf_data': b.data['perf_data'],
+                # 'state': b.data['state'],
+                # 'state_type': b.data['state_type'],
+                'state_id': b.data['state_id'],
+                'state_type_id': b.data['state_type_id'],
+                'last_state_id': b.data['last_state_id'],
+                'last_hard_state_id': b.data['last_hard_state_id'],
+            }
+            if cached_item:
+                data['plugin_monitoring_services_id'] = service_cache['items_id'],
 
-        where_clause = {
-            'items_id': host_cache['items_id'],
-            'itemtype': host_cache['itemtype']
-        }
-        query = self.create_update_query(self.hosts_table, data, where_clause)
-        logger.debug("query: %s", query)
-        try:
-            self.execute_query(query)
-        except Exception as exp:
-            logger.error("error '%s' when executing query: %s", exp, query)
+            # Append to bulk insert queue ...
+            self.events_cache.append(data)
 
-    def record_service_check_result(self, b):
+        # Update hosts state table
+        if self.update_hosts:
+            # SQL table is: CREATE TABLE IF NOT EXISTS `glpi_plugin_monitoring_hosts` (
+            #   `id` int(11) NOT NULL AUTO_INCREMENT,
+            #   `entities_id` int(11) NOT NULL DEFAULT '0',
+            #   `itemtype` varchar(100) DEFAULT NULL,
+            #   `items_id` int(11) NOT NULL DEFAULT '0',
+            #   `name` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT 'not_set',
+            #   `host_name` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT 'not_set',
+            #   `state` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
+            #   `state_type` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
+            #   `last_check` datetime DEFAULT NULL,
+            #   `output` text COLLATE utf8_unicode_ci DEFAULT NULL,
+            #   `perf_data` text DEFAULT NULL COLLATE utf8_unicode_ci,
+            #   `latency` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
+            #   `execution_time` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
+            #   `dependencies` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
+            #   `is_acknowledged` tinyint(1) NOT NULL DEFAULT '0',
+            #   `is_acknowledgeconfirmed` tinyint(1) NOT NULL DEFAULT '0',
+            #   `acknowledge_comment` text DEFAULT NULL COLLATE utf8_unicode_ci,
+            #   `acknowledge_users_id` int(11) NOT NULL DEFAULT '0',
+            #   PRIMARY KEY (`id`),
+            #   KEY `itemtype` (`itemtype`,`items_id`)
+            # ) ENGINE=MyISAM  DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+            data = {
+                'host_name': b.data['host_name'],
+
+                'last_check': datetime.datetime.fromtimestamp(int(b.data['last_chk'])).strftime(
+                    '%Y-%m-%d %H:%M:%S'),
+                'source': self.source,
+                'state': b.data['state'],
+                'state_type': b.data['state_type'],
+                'output': "%s\n%s" % (b.data['output'], b.data['long_output']) if (
+                    b.data['long_output']) else b.data['output'],
+                'perf_data': b.data['perf_data'],
+                'latency': b.data['latency'],
+                'execution_time': b.data['execution_time'],
+                'is_acknowledged': '1' if b.data['problem_has_been_acknowledged'] else '0'
+            }
+
+            where_clause = {
+                'host_name': b.data['host_name']
+            }
+            if cached_item:
+                where_clause = {
+                    'items_id': host_cache['items_id'],
+                    'itemtype': host_cache['itemtype']
+                }
+            query = self.create_update_query(self.hosts_table, data, where_clause)
+            logger.debug("HCR query: %s", query)
+            try:
+                rows_affected = self.execute_query(query)
+                if not rows_affected:
+                    if intial_status:
+                        query = self.create_insert_query(self.hosts_table, data)
+                        self.execute_query(query)
+                    else:
+                        logger.warning("DB host status update failed for %s", host_name)
+            except Exception as exp:
+                logger.error("error '%s' when executing query: %s", exp, query)
+
+    def record_service_check_result(self, b, cached_item, intial_status=False):
         """Record a service check result"""
         host_name = b.data['host_name']
         service_description = b.data['service_description']
@@ -643,77 +747,114 @@ class Glpidb_broker(BaseModule):
 
         # Insert into serviceevents log table
         if self.update_services_events:
-            # SQL table is: CREATE TABLE `glpi_plugin_monitoring_serviceevents` (
-            # `id` bigint(30) NOT NULL AUTO_INCREMENT,
-            # `plugin_monitoring_services_id` int(11) NOT NULL DEFAULT '0',
-            # `date` datetime DEFAULT NULL,
-            # `event` varchar(4096) COLLATE utf8_unicode_ci DEFAULT NULL,
-            # `perf_data` text DEFAULT NULL COLLATE utf8_unicode_ci,
-            # `state` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT '0',
-            # `state_type` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT '0',
-            # `latency` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
-            # `execution_time` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
-            # `unavailability` tinyint(1) NOT NULL DEFAULT '0',
-            # PRIMARY KEY (`id`),
-            # KEY `plugin_monitoring_services_id` (`plugin_monitoring_services_id`),
-            # KEY `plugin_monitoring_services_id_2` (`plugin_monitoring_services_id`,`date`),
-            # KEY `unavailability` (`unavailability`,`state_type`,`plugin_monitoring_services_id`),
-            # KEY `plugin_monitoring_services_id_3` (`plugin_monitoring_services_id`,`id`)
+            # SQL table is: CREATE TABLE IF NOT EXISTS `glpi_plugin_monitoring_serviceevents` (
+            #   `id` bigint(30) NOT NULL AUTO_INCREMENT,
+            #   `host_name` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT 'not_set',
+            #   `service_description` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT 'not_set',
+            #   `plugin_monitoring_services_id` int(11) NOT NULL DEFAULT '-1',
+            #   `date` datetime DEFAULT NULL,
+            #   `state` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT '0',
+            #   `state_type` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT '0',
+            #   `state_id` tinyint(1) NOT NULL DEFAULT '0',
+            #   `state_type_id` tinyint(1) NOT NULL DEFAULT '0',
+            #   `last_state_id` tinyint(1) NOT NULL DEFAULT '0',
+            #   `last_hard_state_id` tinyint(1) NOT NULL DEFAULT '0',
+            #   `output` text COLLATE utf8_unicode_ci DEFAULT NULL,
+            #   `perf_data` text DEFAULT NULL COLLATE utf8_unicode_ci,
+            #   `unavailability` tinyint(1) NOT NULL DEFAULT '0',
+            #   PRIMARY KEY (`id`),
+            #   KEY `plugin_monitoring_services_id` (`plugin_monitoring_services_id`),
+            #   KEY `plugin_monitoring_services_id_2` (`plugin_monitoring_services_id`,`date`),
+            #   KEY `plugin_monitoring_services_id_3` (`plugin_monitoring_services_id`,`id`),
+            #   KEY `service` (`host_name`(50),`service_description`(50)),
+            #   KEY `unavailability` (`unavailability`,`state_type`,`plugin_monitoring_services_id`)
             # ) ENGINE=MyISAM  DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
             logger.info("append data to events_cache for service: %s", service_id)
             data = {
-                'plugin_monitoring_services_id': service_cache['items_id'],
+                'host_name': b.data['host_name'],
+                'service_description': b.data['service_description'],
                 'date': datetime.datetime.fromtimestamp(int(b.data['last_chk'])).strftime(
                     '%Y-%m-%d %H:%M:%S'),
-                'event': ("%s \n %s", b.data['output'], b.data['long_output']) if (
+                'output': ("%s\n%s", b.data['output'], b.data['long_output']) if (
                         len(b.data['long_output']) > 0) else b.data['output'],
-                'state': b.data['state'],
-                'state_type': b.data['state_type'],
                 'perf_data': b.data['perf_data'],
-                'latency': b.data['latency'],
-                'execution_time': b.data['execution_time']
+                # 'state': b.data['state'],
+                # 'state_type': b.data['state_type'],
+                'state_id': b.data['state_id'],
+                'state_type_id': b.data['state_type_id'],
+                'last_state_id': b.data['last_state_id'],
+                'last_hard_state_id': b.data['last_hard_state_id'],
             }
+            if cached_item:
+                data['plugin_monitoring_services_id'] = service_cache['items_id'],
 
             # Append to bulk insert queue ...
             self.events_cache.append(data)
 
         # Update service state table
         if self.update_services:
-            # SQL table is: CREATE TABLE `glpi_plugin_monitoring_services` (
-            # `id` int(11) NOT NULL AUTO_INCREMENT,
-            # `entities_id` int(11) NOT NULL DEFAULT '0',
-            # `name` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
-            # `plugin_monitoring_components_id` int(11) NOT NULL DEFAULT '0',
-            # `plugin_monitoring_componentscatalogs_hosts_id` int(11) NOT NULL DEFAULT '0',
-            # `event` varchar(4096) COLLATE utf8_unicode_ci DEFAULT NULL,
-            # `state` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
-            # `state_type` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
-            # `last_check` datetime DEFAULT NULL,
-            # `arguments` text DEFAULT NULL COLLATE utf8_unicode_ci,
-            # `networkports_id` int(11) NOT NULL DEFAULT '0',
-            # `is_acknowledged` tinyint(1) NOT NULL DEFAULT '0',
-            # `is_acknowledgeconfirmed` tinyint(1) NOT NULL DEFAULT '0',
-            # `acknowledge_comment` text DEFAULT NULL COLLATE utf8_unicode_ci,
-            # `acknowledge_users_id` int(11) NOT NULL DEFAULT '0',
-            # PRIMARY KEY (`id`),
-            # KEY `state` (`state`(50),`state_type`(50)),
-            # KEY `plugin_monitoring_componentscatalogs_hosts_id`
-            # (`plugin_monitoring_componentscatalogs_hosts_id`),
-            # KEY `last_check` (`last_check`)
+            # SQL table is: CREATE TABLE IF NOT EXISTS `glpi_plugin_monitoring_services` (
+            #   `id` int(11) NOT NULL AUTO_INCREMENT,
+            #   `entities_id` int(11) NOT NULL DEFAULT '0',
+            #   `host_name` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT 'not_set',
+            #   `service_description` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT 'not_set',
+            #   `plugin_monitoring_components_id` int(11) NOT NULL DEFAULT '0',
+            #   `plugin_monitoring_componentscatalogs_hosts_id` int(11) NOT NULL DEFAULT '0',
+            #   `state` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
+            #   `state_type` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
+            #   `last_check` datetime DEFAULT NULL,
+            #   `latency` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
+            #   `execution_time` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
+            #   `output` text COLLATE utf8_unicode_ci DEFAULT NULL,
+            #   `perf_data` text DEFAULT NULL COLLATE utf8_unicode_ci,
+            #   `arguments` text DEFAULT NULL COLLATE utf8_unicode_ci,
+            #   `networkports_id` int(11) NOT NULL DEFAULT '0',
+            #   `is_acknowledged` tinyint(1) NOT NULL DEFAULT '0',
+            #   `is_acknowledgeconfirmed` tinyint(1) NOT NULL DEFAULT '0',
+            #   `acknowledge_comment` text DEFAULT NULL COLLATE utf8_unicode_ci,
+            #   `acknowledge_users_id` int(11) NOT NULL DEFAULT '0',
+            #   PRIMARY KEY (`id`),
+            #   KEY `service` (`host_name`(50),`service_description`(50)),
+            #   KEY `state` (`state`(50),`state_type`(50)),
+            #   KEY `plugin_monitoring_componentscatalogs_hosts_id` (`plugin_monitoring_componentscatalogs_hosts_id`),
+            #   KEY `last_check` (`last_check`)
             # ) ENGINE=MyISAM  DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
             data = {
-                'event': "%s \n %s" % (b.data['output'], b.data['long_output']) if (
-                    b.data['long_output']) else b.data['output'],
-                'state': b.data['state'],
-                'state_type': b.data['state_type'],
+                'host_name': b.data['host_name'],
+                'service_description': b.data['service_description'],
+
                 'last_check': datetime.datetime.fromtimestamp(int(b.data['last_chk'])).strftime(
                     '%Y-%m-%d %H:%M:%S'),
+                'source': self.source,
+                'state': b.data['state'],
+                'state_type': b.data['state_type'],
+                'output': "%s\n%s" % (b.data['output'], b.data['long_output']) if (
+                    b.data['long_output']) else b.data['output'],
+                'perf_data': b.data['perf_data'],
+                'latency': b.data['latency'],
+                'execution_time': b.data['execution_time'],
                 'is_acknowledged': '1' if b.data['problem_has_been_acknowledged'] else '0'
             }
-            where_clause = {'id': service_cache['items_id']}
+            where_clause = {
+                'host_name': b.data['host_name'],
+                'service_description': b.data['service_description']
+            }
+            if cached_item:
+                where_clause = {
+                    'id': service_cache['items_id']
+                }
+
+            # query = self.create_update_query(self.services_table, data, where_clause)
             query = self.create_update_query(self.services_table, data, where_clause)
+            logger.debug("SCR query: %s", query)
             try:
-                self.execute_query(query)
+                rows_affected = self.execute_query(query)
+                if not rows_affected:
+                    if intial_status:
+                        query = self.create_insert_query(self.services_table, data)
+                        self.execute_query(query)
+                    else:
+                        logger.warning("DB service status update failed for %s", service_id)
             except Exception as exp:
                 logger.error("error '%s' when executing query: %s", exp, query)
 
