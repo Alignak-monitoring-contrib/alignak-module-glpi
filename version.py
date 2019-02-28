@@ -17,7 +17,7 @@ __pkg_name__ = u"alignak_module_glpi"
 __module_types__ = u"DB"
 
 # Application manifest
-__version__ = u"0.0.3"
+__version__ = u"0.0.4"
 __author__ = u"Frédéric Mohier"
 __author_email__ = u"frederic.mohier@alignak.net"
 __copyright__ = u"(c) 2015-2017 - %s" % __author__

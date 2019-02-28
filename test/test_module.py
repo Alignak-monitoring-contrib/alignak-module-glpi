@@ -561,8 +561,9 @@ class TestModules(AlignakTest):
         ), i)
         i += 1
 
-    def test_module_db_connection(self):
-        """Test the module initialization function, DB connection
+    def test_module_db_fails(self):
+        """Test the module initialization - DB connection fails
+
         :return:
         """
         # Obliged to call to get a self.logger...
@@ -619,6 +620,92 @@ class TestModules(AlignakTest):
 
         # Initialize the module - DB connection
         self.clear_logs()
+
+        # For test, update the module configuration
+        instance.host = '192.168.1.1'
+        instance.database = 'glpi-9.3'
+        instance.user = 'glpi'
+        instance.password = 'glpi'
+        instance.update_hosts = True
+        instance.update_services = True
+        instance.update_services_events = True
+        instance.init()
+
+        i = 0
+        self.assert_log_match(re.escape(
+            "connecting to database glpi-9.3 on %s..." % instance.host), i)
+        i += 1
+        self.assert_log_match(re.escape(
+            "database connection error: 2003: Can't connect to MySQL server on '%s:3306' "
+            "(110 Connection timed out)" % instance.hosts_table), i)
+        i += 1
+        self.assert_log_match(re.escape("initialized"), i)
+
+    def _db_connection(self, fake=True):
+        """Test the module initialization with the DB connection
+
+        Note that this test is executing correctly on a local test environment where a
+        MariaDB is present with a configured DB!
+
+        Using the kake_db parameter allows to skip the DB connection of the module
+        :return:
+        """
+        # Obliged to call to get a self.logger...
+        self.set_unit_tests_logger_level()
+        self.setup_with_file('./cfg/alignak.cfg')
+        self.assertTrue(self.conf_is_correct)
+
+        # Clear logs
+        self.clear_logs()
+
+        # -----
+        # Default initialization
+        # -----
+        # Create an Alignak module
+        mod = Module({
+            'module_alias': 'glpi',
+            'module_types': 'DB',
+            'python_name': 'alignak_module_glpi'
+        })
+
+        instance = alignak_module_glpi.get_instance(mod)
+        self.assertIsInstance(instance, BaseModule)
+        self.show_logs()
+
+        i = 0
+        self.assert_log_match(re.escape(
+            "using 'glpi' database on 127.0.0.1:3306 (user = alignak)"
+        ), i)
+        i += 1
+        self.assert_log_match(re.escape(
+            "updating hosts states (glpi_plugin_monitoring_hosts): False"
+        ), i)
+        i += 1
+        self.assert_log_match(re.escape(
+            "updating services states (glpi_plugin_monitoring_services): False"
+        ), i)
+        i += 1
+        self.assert_log_match(re.escape(
+            "updating services events (glpi_plugin_monitoring_serviceevents): False"
+        ), i)
+        i += 1
+        self.assert_log_match(re.escape(
+            "periodical commit period: 60s"
+        ), i)
+        i += 1
+        self.assert_log_match(re.escape(
+            "periodical commit volume: 1000 lines"
+        ), i)
+        i += 1
+        self.assert_log_match(re.escape(
+            "periodical DB connection test period: 0s"
+        ), i)
+        i += 1
+        self.clear_logs()
+
+        # For test, update the module configuration
+        instance.fake_db = fake
+
         instance.host = '192.168.43.177'
         instance.database = 'glpi-9.3'
         instance.user = 'glpi'
@@ -631,11 +718,13 @@ class TestModules(AlignakTest):
         # instance.check_database()
 
         i = 0
-        self.assert_log_match(re.escape("connecting to database glpi-9.3 on %s..." % instance.host), i)
+        self.assert_log_match(re.escape("connecting to database glpi-9.3 on %s..."
+                                        % instance.host), i)
+        if not fake:
+            i += 1
+            self.assert_log_match(re.escape("server information"), i)
         i += 1
         self.assert_log_match(re.escape("connected"), i)
-        i += 1
-        self.assert_log_match(re.escape("database connection configured"), i)
         i += 1
         self.assert_log_match(re.escape("updating hosts states is enabled"), i)
         i += 1
@@ -645,6 +734,19 @@ class TestModules(AlignakTest):
         i += 1
         self.assert_log_match(re.escape("initialized"), i)
         i += 1
+
+        return instance
+
+    def test_module_db_connection(self):
+        """Test the module initialization
+
+        Note that this test is executing correctly on a local test environment where a
+        MariaDB is present with a configured DB!
+
+        :return:
+        """
+        # Fake the DB connection for tests!
+        instance = self._db_connection(fake=True)
 
         # Initial host status
         # -----
@@ -656,7 +758,20 @@ class TestModules(AlignakTest):
                 "_HOSTSID": "4",
                 "_ITEMTYPE": "Computer",
                 "_ITEMSID": "6"
-            }
+            },
+            "last_chk": 1444427104,
+            "state": "UP",
+            "state_type": "HARD",
+            "state_id": 0,
+            "state_type_id": 1,
+            "last_state_id": 0,
+            "last_hard_state_id": 0,
+            "output": "OK - host is up and running",
+            "long_output": "",
+            "perf_data": "uptime=1200 rta=0.049000ms;2.000000;3.000000;0.000000 pl=0%;50;80;0",
+            "latency": 0.0,
+            "execution_time": 2.14,
+            'problem_has_been_acknowledged': False
         }
         b = Brok({'data': hcr, 'type': 'initial_host_status'}, False)
         b.prepare()
@@ -675,6 +790,7 @@ class TestModules(AlignakTest):
 
         # Initial service status
         # -----
+        self.clear_logs()
         scr = {
             "host_name": "srv001",
             "service_description": "disks",
@@ -684,7 +800,20 @@ class TestModules(AlignakTest):
                 "_HOSTITEMTYPE": "Computer",
                 "_ITEMTYPE": "Service",
                 "_ITEMSID": "1"
-            }
+            },
+            "last_chk": 1444427104,
+            "state": "OK",
+            "state_type": "HARD",
+            "state_id": 0,
+            "state_type_id": 1,
+            "last_state_id": 0,
+            "last_hard_state_id": 0,
+            "output": "OK - all is ok!",
+            "long_output": "",
+            "perf_data": "uptime=1200 rta=0.049000ms;2.000000;3.000000;0.000000 pl=0%;50;80;0",
+            "latency": 0.2317881584,
+            "execution_time": 3.1496069431000002,
+            'problem_has_been_acknowledged': False
         }
         b = Brok({'data': scr, 'type': 'initial_service_status'}, False)
         b.prepare()
@@ -703,7 +832,6 @@ class TestModules(AlignakTest):
         assert 'srv001/disks' in instance.services_cache
         # items_id is not yet set!
         assert instance.services_cache['srv001/disks'] == {
-            'itemtype': 'Service',
             'items_id': '1'
         }
 
@@ -756,5 +884,3 @@ class TestModules(AlignakTest):
         b.prepare()
         instance.manage_brok(b)
         self.show_logs()
-        # UPDATE glpi_plugin_monitoring_hosts set latency='0.2317881584' , execution_time='3.1496069431' , perf_data='uptime=1200 rta=0.049000ms;2.000000;3.000000;0.000000 pl=0%;50;80;0' , state_type='SOFT' , state='DOWN' , is_acknowledged='0' , last_check='2015-10-09 23:45:04' , event='CRITICAL - Plugin timed out after 10 seconds'  WHERE items_id='6' and itemtype='Computer'
-        # The module inner cache stored the host
