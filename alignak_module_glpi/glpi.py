@@ -31,17 +31,22 @@
 # The managed_brok function is called by Broker for manage the broks. It calls
 # the manage_*_brok functions that create queries, and then run queries.
 
+
+"""
+This Class is a plugin for the Shinken/Alignak Broker. It connects to a Glpi Mysql / MariaDB
+database to update hosts and services status when broks are received
+"""
 import time
 import queue
 import datetime
 import logging
 import traceback
 
+from collections import deque
+
 import mysql.connector
 
 from alignak.basemodule import BaseModule
-
-from collections import deque
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 for handler in logger.parent.handlers:
@@ -209,6 +214,7 @@ class Glpidb_broker(BaseModule):
             logger.info('database connection closed')
 
     def check_database(self):
+        """Check the connected database main tables structure to confirm that update is possible"""
         if self.fake_db:
             if self.update_hosts:
                 logger.info("updating hosts states is enabled")
@@ -334,7 +340,7 @@ class Glpidb_broker(BaseModule):
         logger.info("Created an update query: %s", query)
         return query
 
-    def execute_query(self, query, data=None):
+    def execute_query(self, query, data=None):  # pylint: disable=too-many-return-statements
         """Just run the query with the provided parameters
         """
         if self.fake_db:
@@ -434,21 +440,17 @@ class Glpidb_broker(BaseModule):
             if some_events:
                 logger.debug("Events, %d rows to insert", len(some_events))
                 cursor = self.db.cursor(prepared=True)
-                result = cursor.executemany(self.insert_services_events_query, some_events)
+                cursor.executemany(self.insert_services_events_query, some_events)
                 self.db.commit()
                 logger.info("Inserted %d rows (%2.4f seconds)",
                             self.db_cursor.rowcount, time.time() - now)
-        except mysql.connector.Error as error:
-            # logger.error("result: %s", result)
-            # logger.error("cursor: %s", cursor)
-            logger.error("Failed inserting record into python_users table {}".format(error))
         except Exception as exp:
             logger.warning("Exception: %s / %s / %s", type(exp), str(exp), traceback.print_exc())
             logger.error("error '%s' when executing query: %s", exp, some_events)
 
-    def manage_brok(self, b):
+    def manage_brok(self, brok):
         """Got a brok, manage only the interesting broks"""
-        logger.debug("Got a brok: %s", b)
+        logger.debug("Got a brok: %s", brok)
 
         # Not used currently - may be used to update Alignak status in the DB!
         # if b.type == 'program_status':
@@ -461,23 +463,23 @@ class Glpidb_broker(BaseModule):
         #     self.manage_update_program_status_brok(b)
 
         # Build initial host state cache
-        if b.type == 'initial_host_status':
-            """Prepare the known hosts cache"""
-            host_name = b.data['host_name']
+        if brok.type == 'initial_host_status':
+            # Prepare the known hosts cache
+            host_name = brok.data['host_name']
             logger.debug("got initial host status: %s", host_name)
 
             self.hosts_cache[host_name] = {
-                'realm_name': b.data.get('realm_name', b.data.get('realm', 'All'))
+                'realm_name': brok.data.get('realm_name', brok.data.get('realm', 'All'))
             }
 
             try:
                 # Data used for DB updates
-                logger.debug("initial host status: %s : %s", host_name, b.data['customs'])
+                logger.debug("initial host status: %s : %s", host_name, brok.data['customs'])
                 cached_item = True
                 self.hosts_cache[host_name].update({
-                    'hostsid': b.data['customs']['_HOSTSID'],
-                    'itemtype': b.data['customs']['_ITEMTYPE'],
-                    'items_id': b.data['customs']['_ITEMSID']
+                    'hostsid': brok.data['customs']['_HOSTSID'],
+                    'itemtype': brok.data['customs']['_ITEMTYPE'],
+                    'items_id': brok.data['customs']['_ITEMSID']
                 })
             except Exception:
                 cached_item = False
@@ -487,17 +489,18 @@ class Glpidb_broker(BaseModule):
 
             if self.update_hosts or self.update_services_events:
                 start = time.time()
-                self.record_host_check_result(b, cached_item, True)
-                logger.debug("host check result: %s, %d seconds", host_name, time.time() - start)
+                self.record_host_check_result(brok, cached_item, True)
+                logger.debug("host check result: %s, (%2.4f seconds)",
+                             host_name, time.time() - start)
 
             logger.info("initial host status: %s, items_id=%s", host_name,
                         self.hosts_cache[host_name]['items_id'])
 
         # Build initial service state cache
-        if b.type == 'initial_service_status':
-            """Prepare the known services cache"""
-            host_name = b.data['host_name']
-            service_description = b.data['service_description']
+        if brok.type == 'initial_service_status':
+            # Prepare the known services cache
+            host_name = brok.data['host_name']
+            service_description = brok.data['service_description']
             service_id = host_name + "/" + service_description
             logger.debug("got initial service status: %s", service_id)
 
@@ -506,10 +509,10 @@ class Glpidb_broker(BaseModule):
                 return
 
             try:
-                logger.debug("initial service status: %s : %s", service_id, b.data['customs'])
+                logger.debug("initial service status: %s : %s", service_id, brok.data['customs'])
                 cached_item = True
                 self.services_cache[service_id] = {
-                    'items_id': b.data['customs']['_ITEMSID']
+                    'items_id': brok.data['customs']['_ITEMSID']
                 }
             except Exception:
                 cached_item = False
@@ -518,18 +521,18 @@ class Glpidb_broker(BaseModule):
 
             if self.update_services or self.update_services_events:
                 start = time.time()
-                self.record_service_check_result(b, cached_item, True)
-                logger.debug("service check result: %s, %d seconds", service_id,
-                             time.time() - start)
+                self.record_service_check_result(brok, cached_item, True)
+                logger.debug("service check result: %s, (%2.4f seconds)",
+                             service_id, time.time() - start)
 
             logger.info("initial service status: %s, items_id=%s",
                         service_id, self.services_cache[service_id]['items_id'])
 
         # Manage host check result if host is defined in Glpi DB
-        if b.type == 'host_check_result' and \
+        if brok.type == 'host_check_result' and \
                 (self.update_hosts or self.update_services_events):
-            host_name = b.data['host_name']
-            logger.debug("host check result: %s: %s", host_name)
+            host_name = brok.data['host_name']
+            logger.debug("host check result: %s", host_name)
 
             if host_name not in self.hosts_cache:
                 logger.debug("got a host check result for an unknown host: %s", host_name)
@@ -541,14 +544,15 @@ class Glpidb_broker(BaseModule):
                 cached_item = False
 
             start = time.time()
-            self.record_host_check_result(b, cached_item)
-            logger.debug("host check result: %s, %d seconds", host_name, time.time() - start)
+            self.record_host_check_result(brok, cached_item)
+            logger.debug("host check result: %s, (%2.4f seconds)",
+                         host_name, time.time() - start)
 
         # Manage service check result if service is defined in Glpi DB
-        if b.type == 'service_check_result' and \
+        if brok.type == 'service_check_result' and \
                 (self.update_services or self.update_services_events):
-            host_name = b.data['host_name']
-            service_description = b.data['service_description']
+            host_name = brok.data['host_name']
+            service_description = brok.data['service_description']
             service_id = host_name + "/" + service_description
             logger.debug("service check result: %s", service_id)
 
@@ -566,8 +570,9 @@ class Glpidb_broker(BaseModule):
                 cached_item = False
 
             start = time.time()
-            self.record_service_check_result(b, cached_item)
-            logger.debug("service check result: %s, %d seconds", service_id, time.time() - start)
+            self.record_service_check_result(brok, cached_item)
+            logger.debug("service check result: %s, (%2.4f seconds)",
+                         service_id, time.time() - start)
 
     def record_host_check_result(self, b, cached_item, initial_status=False):
         """Record an host check result"""
@@ -607,7 +612,7 @@ class Glpidb_broker(BaseModule):
                 'date': datetime.datetime.fromtimestamp(int(b.data['last_chk'])).strftime(
                     '%Y-%m-%d %H:%M:%S'),
                 'output': ("%s\n%s", b.data['output'], b.data['long_output']) if (
-                        len(b.data['long_output']) > 0) else b.data['output'],
+                    b.data['long_output']) else b.data['output'],
                 'perf_data': b.data['perf_data'],
                 # Use 4 (unknown usual code) if value does not exist in the brok
                 'state_id': b.data.get('state_id', 4),
@@ -616,7 +621,7 @@ class Glpidb_broker(BaseModule):
                 'last_hard_state_id': b.data.get('last_hard_state_id', 4),
             }
             if cached_item:
-                data['plugin_monitoring_services_id'] = host_cache['items_id'],
+                data['plugin_monitoring_services_id'] = host_cache['items_id']
 
             # Append to bulk insert queue ...
             self.events_cache.append(data)
@@ -745,7 +750,7 @@ class Glpidb_broker(BaseModule):
                 'date': datetime.datetime.fromtimestamp(int(b.data['last_chk'])).strftime(
                     '%Y-%m-%d %H:%M:%S'),
                 'output': ("%s\n%s", b.data['output'], b.data['long_output']) if (
-                        len(b.data['long_output']) > 0) else b.data['output'],
+                    b.data['long_output']) else b.data['output'],
                 'perf_data': b.data['perf_data'],
                 # Use 4 (unknown usual code) if value does not exist in the brok
                 'state_id': b.data.get('state_id', 4),
@@ -754,7 +759,7 @@ class Glpidb_broker(BaseModule):
                 'last_hard_state_id': b.data.get('last_hard_state_id', 4),
             }
             if cached_item:
-                data['plugin_monitoring_services_id'] = service_cache['items_id'],
+                data['plugin_monitoring_services_id'] = service_cache['items_id']
 
             # Append to bulk insert queue ...
             self.events_cache.append(data)
@@ -786,7 +791,8 @@ class Glpidb_broker(BaseModule):
         #   PRIMARY KEY (`id`),
         #   KEY `service` (`host_name`(50),`service_description`(50)),
         #   KEY `state` (`state`(50),`state_type`(50)),
-        #   KEY `plugin_monitoring_componentscatalogs_hosts_id` (`plugin_monitoring_componentscatalogs_hosts_id`),
+        #   KEY `plugin_monitoring_componentscatalogs_hosts_id`
+        # (`plugin_monitoring_componentscatalogs_hosts_id`),
         #   KEY `last_check` (`last_check`)
         # ) ENGINE=MyISAM  DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
         data = {
@@ -887,8 +893,8 @@ class Glpidb_broker(BaseModule):
 
         Alignak brok contains many more information:
         _config: all the more interesting configuration parameters
-        are pushed in the program status brok sent by each scheduler. At minimum, the UI will receive
-        all the framework configuration parameters.
+        are pushed in the program status brok sent by each scheduler. At minimum, the UI will
+        receive all the framework configuration parameters.
         _running: all the running scheduler information: checks count, results, live synthesis
         _macros: the configure Alignak macros and their value
 
@@ -1044,13 +1050,12 @@ class Glpidb_broker(BaseModule):
                     brok.prepare()
                     self.manage_brok(brok)
 
-                logger.debug("time to manage %d broks (%d seconds)",
+                logger.debug("time to manage %d broks (%2.4f seconds)",
                              len(message), time.time() - start)
             except queue.Full:
                 logger.warning("Worker control queue is full")
             except queue.Empty:
                 time.sleep(0.1)
-                pass
             except EOFError:
                 # Broken queue ... the broker deleted the module queue
                 time.sleep(1.0)
