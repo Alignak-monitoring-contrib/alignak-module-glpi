@@ -322,11 +322,11 @@ class TestModules(AlignakTest):
         index = 0
         self.assert_log_match("Killing external module", index)
         index = index + 1
-        # todo: This log is not expected! But it is probably because of the py.test ...
-        # Indeed the receiver daemon that the module is attached to is receiving a SIGTERM !!!
-        self.assert_log_match(re.escape("glpi is still living 10 seconds after a normal kill, "
-                                        "I help it to die"), index)
-        index = index + 1
+        # # todo: This log is not expected! But it is probably because of the py.test ...
+        # # Indeed the daemon that the module is attached to is receiving a SIGTERM !!!
+        # self.assert_log_match(re.escape("glpi is still living 10 seconds after a normal kill, "
+        #                                 "I help it to die"), index)
+        # index = index + 1
         self.assert_log_match("External module killed", index)
         index = index + 1
 
@@ -368,8 +368,6 @@ class TestModules(AlignakTest):
         index += 1
 
 
-        self.assert_log_match("initialized", index)
-        index = index + 1
         self.assert_log_match("Module glpi is initialized.", index)
         index = index + 1
         self.assert_log_match("Restarting glpi...", index)
