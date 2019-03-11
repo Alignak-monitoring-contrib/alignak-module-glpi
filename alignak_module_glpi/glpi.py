@@ -149,8 +149,19 @@ class Glpidb_broker(BaseModule):
                     self.serviceevents_table, self.update_services_events)
         self.insert_services_events_query = None
 
+        self.update_records = bool(getattr(mod_conf, 'update_records', '0') == '1')
+        self.records_table = getattr(mod_conf, 'records_table', 'glpi_plugin_monitoring_records')
+        self.records_services = getattr(mod_conf, 'records_services', '')
+        self.records_services = self.records_services.split(',')
+        if self.records_services and not self.records_services[0]:
+            self.records_services = []
+        logger.info("updating records (%s): %s, services: %s",
+                    self.records_table, self.update_records, self.records_services)
+        self.insert_records_query = None
+
         self.db = None
         self.db_cursor = None
+        self.db_cursor_many = None
         self.is_connected = False
 
         self.events_cache = deque()
@@ -194,6 +205,7 @@ class Glpidb_broker(BaseModule):
 
                 self.db.set_charset_collation(self.character_set)
                 self.db_cursor = self.db.cursor()
+                self.db_cursor_many = self.db.cursor(prepared=True)
                 logger.info('server information: %s, version: %s',
                             self.db.get_server_info(), self.db.get_server_version())
 
@@ -207,10 +219,12 @@ class Glpidb_broker(BaseModule):
 
     def close(self):
         """Close the DB connection and release the default cursor"""
-        if self.db.is_connected():
+        if self.is_connected:
             self.is_connected = False
             self.db_cursor.close()
+            self.db_cursor_many.close()
             self.db.close()
+            self.db = None
             logger.info('database connection closed')
 
     def check_database(self):
@@ -292,19 +306,6 @@ class Glpidb_broker(BaseModule):
         if self.update_services_events:
             logger.info("updating services events is enabled")
 
-    def stringify(self, val):
-        """Get a unicode from a value"""
-        return "%s" % val
-        # # If raw string, go in unicode
-        # if isinstance(val, str):
-        #     val = val.decode('utf8', 'ignore').replace("'", "''")
-        # elif isinstance(val, unicode):
-        #     val = val.replace("'", "''")
-        # else:  # other type, we can str
-        #     val = unicode(str(val))
-        #     val = val.replace("'", "''")
-        # return val
-
     def create_select_query(self, table, data, where_data):
         """Create a select query for a table with provided data, and use where data for
         the WHERE clause
@@ -347,7 +348,7 @@ class Glpidb_broker(BaseModule):
             return 0
 
         if not self.is_connected:
-            logger.info("Not connected - should have run query: %s", query)
+            logger.info("Not connected - should have run query: %s with: %s", query, data)
             return -1
 
         if data is not None:
@@ -379,7 +380,7 @@ class Glpidb_broker(BaseModule):
 
             return 0
         except Exception as exp:
-            logger.warning("A query raised an error: %s, error: %s", query, exp)
+            logger.warning("A query raised an error: %s, error: %s, data: %s", query, exp, data)
             self.db.rollback()
             return -1
 
@@ -418,9 +419,8 @@ class Glpidb_broker(BaseModule):
             an_event = self.events_cache[0]
             fields = [u"`%s`" % (prop) for prop in an_event]
             values = [u"%s" for prop in an_event]
-            self.insert_services_events_query = \
-                u"INSERT INTO `%s` (%s) VALUES (%s)" \
-                % (self.serviceevents_table, ', '.join(fields), ', '.join(values))
+            self.insert_services_events_query = u"INSERT INTO `%s` (%s) VALUES (%s)" % (
+                self.serviceevents_table, ', '.join(fields), ', '.join(values))
             logger.info("Created an insert query: %s", self.insert_services_events_query)
 
         # Flush all the stored log lines
@@ -439,11 +439,11 @@ class Glpidb_broker(BaseModule):
 
             if some_events:
                 logger.debug("Events, %d rows to insert", len(some_events))
-                cursor = self.db.cursor(prepared=True)
-                cursor.executemany(self.insert_services_events_query, some_events)
+
+                self.db_cursor_many.executemany(self.insert_services_events_query, some_events)
                 self.db.commit()
                 logger.info("Inserted %d rows (%2.4f seconds)",
-                            self.db_cursor.rowcount, time.time() - now)
+                            self.db_cursor_many.rowcount, time.time() - now)
         except Exception as exp:
             logger.warning("Exception: %s / %s / %s", type(exp), str(exp), traceback.print_exc())
             logger.error("error '%s' when executing query: %s", exp, some_events)
@@ -581,7 +581,7 @@ class Glpidb_broker(BaseModule):
         logger.debug("record host check result: %s: %s", host_name, b.data)
 
         # Insert into serviceevents log table
-        if self.update_services_events:
+        if self.update_services_events and not initial_status:
             # SQL table is: CREATE TABLE IF NOT EXISTS `glpi_plugin_monitoring_serviceevents` (
             #   `id` bigint(30) NOT NULL AUTO_INCREMENT,
             #   `host_name` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT 'not_set',
@@ -620,8 +620,8 @@ class Glpidb_broker(BaseModule):
                 'last_state_id': b.data.get('last_state_id', 4),
                 'last_hard_state_id': b.data.get('last_hard_state_id', 4),
             }
-            if cached_item:
-                data['plugin_monitoring_services_id'] = host_cache['items_id']
+            # if cached_item:
+            #     data['plugin_monitoring_services_id'] = host_cache['items_id']
 
             # Append to bulk insert queue ...
             self.events_cache.append(data)
@@ -668,15 +668,10 @@ class Glpidb_broker(BaseModule):
             'is_acknowledged': '1' if b.data['problem_has_been_acknowledged'] else '0'
         }
 
-        where_clause = {
-            'host_name': b.data['host_name']
-        }
-        if cached_item:
-            where_clause = {
-                'items_id': host_cache['items_id'],
-                'itemtype': host_cache['itemtype']
-            }
         if not self.update_hosts_query:
+            where_clause = {
+                'host_name': b.data['host_name']
+            }
             self.update_hosts_query = self.create_update_query(self.hosts_table,
                                                                data, where_clause)
 
@@ -719,7 +714,7 @@ class Glpidb_broker(BaseModule):
         logger.debug("service check result: %s: %s", service_id, b.data)
 
         # Insert into serviceevents log table
-        if self.update_services_events:
+        if self.update_services_events and not initial_status:
             # SQL table is: CREATE TABLE IF NOT EXISTS `glpi_plugin_monitoring_serviceevents` (
             #   `id` bigint(30) NOT NULL AUTO_INCREMENT,
             #   `host_name` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT 'not_set',
@@ -758,11 +753,35 @@ class Glpidb_broker(BaseModule):
                 'last_state_id': b.data.get('last_state_id', 4),
                 'last_hard_state_id': b.data.get('last_hard_state_id', 4),
             }
-            if cached_item:
-                data['plugin_monitoring_services_id'] = service_cache['items_id']
+            # if cached_item:
+            #     data['plugin_monitoring_services_id'] = service_cache['items_id']
 
             # Append to bulk insert queue ...
             self.events_cache.append(data)
+
+        # Record performance data for specific services
+        if self.update_records and service_description in self.records_services:
+            data = {
+                'host_name': b.data['host_name'],
+                'service_description': b.data['service_description'],
+
+                'last_check': datetime.datetime.fromtimestamp(int(b.data['last_chk'])).strftime(
+                    '%Y-%m-%d %H:%M:%S'),
+                'source': self.source,
+                'output': "%s\n%s" % (b.data['output'], b.data['long_output']) if (
+                    b.data['long_output']) else b.data['output'],
+                'perf_data': b.data['perf_data']
+            }
+            if not self.insert_records_query:
+                self.insert_records_query = self.create_insert_query(self.records_table, data)
+
+            try:
+                rows_affected = self.execute_query(self.insert_records_query, data)
+                if rows_affected:
+                    logger.info("Created a new record for %s with data: %s", service_id, data)
+            except Exception as exp:
+                logger.error("error '%s', query: %s, data: %s", exp, self.update_services_query,
+                             data)
 
         # Update service state table
         if not self.update_services:
@@ -811,16 +830,12 @@ class Glpidb_broker(BaseModule):
             'execution_time': b.data['execution_time'],
             'is_acknowledged': '1' if b.data['problem_has_been_acknowledged'] else '0'
         }
-        where_clause = {
-            'host_name': b.data['host_name'],
-            'service_description': b.data['service_description']
-        }
-        if cached_item:
-            where_clause = {
-                'id': service_cache['items_id']
-            }
 
         if not self.update_services_query:
+            where_clause = {
+                'host_name': b.data['host_name'],
+                'service_description': b.data['service_description']
+            }
             self.update_services_query = self.create_update_query(self.services_table,
                                                                   data, where_clause)
 
@@ -1032,10 +1047,16 @@ class Glpidb_broker(BaseModule):
                 logger.debug("Testing database connection ...")
                 # Test connection every N seconds ...
                 db_test_connection = start + self.db_test_period
-                self.is_connected = self.db.is_connected()
-                if not self.is_connected:
-                    logger.info("Trying to reconnect database ...")
-                    self.db.reconnect(attempts=3, delay=10)
+                if self.db:
+                    self.is_connected = self.db.is_connected()
+                    if not self.is_connected:
+                        try:
+                            logger.info("Trying to reconnect database ...")
+                            self.db.reconnect(attempts=3, delay=10)
+                            logger.info("Succesfull database reconnection...")
+                        except Exception:
+                            logger.info("Database reconnection failed.")
+                            pass
 
             # Bulk insert
             if db_commit_next_time < start:
